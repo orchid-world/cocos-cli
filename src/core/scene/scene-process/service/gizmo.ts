@@ -9,7 +9,8 @@ import GizmoDefines from './gizmo/gizmo-defines';
 import GizmoBase from './gizmo/base/gizmo-base';
 import GizmoOperation from './gizmo/gizmo-operation';
 import { create3DNode } from './gizmo/utils/engine-utils';
-import type { IGizmoEvents, IGizmoService } from '../../common';
+import { NodeEventType } from '../../common';
+import type { IGizmoEvents, IGizmoService, IChangeNodeOptions } from '../../common';
 
 // Import component gizmo modules so they self-register via registerGizmo()
 import './gizmo/components/camera';
@@ -17,6 +18,20 @@ import './gizmo/components/box-collider';
 import './gizmo/components/directional-light';
 import './gizmo/components/canvas';
 import './gizmo/components/ui-transform';
+import './gizmo/components/sphere-light';
+import './gizmo/components/spot-light';
+import './gizmo/components/sphere-collider';
+import './gizmo/components/capsule-collider';
+import './gizmo/components/cone-collider';
+import './gizmo/components/cylinder-collider';
+import './gizmo/components/plane-collider';
+import './gizmo/components/simplex-collider';
+import './gizmo/components/mesh-collider';
+import './gizmo/components/box-collider-2d';
+import './gizmo/components/circle-collider-2d';
+import './gizmo/components/polygon-collider-2d';
+import './gizmo/components/mesh-renderer';
+import './gizmo/components/skinned-mesh-renderer';
 
 type TGizmoType = 'icon' | 'persistent' | 'component';
 
@@ -422,16 +437,59 @@ export class GizmoService extends BaseService<IGizmoEvents> implements IGizmoSer
         this.clearAllGizmos();
     }
 
-    onNodeChanged(node: Node): void {
+    onNodeChanged(node: Node, opts?: IChangeNodeOptions): void {
         if (!node) return;
+
+        const has = this._selection.includes(node.uuid);
+
         walkNodeComponent(node, (component: Component) => {
-            const compGizmo = getGizmoProperty('component', component);
-            if (compGizmo && compGizmo.checkVisible()) {
-                if ((compGizmo as any).onNodeChanged) {
-                    (compGizmo as any).onNodeChanged({ node });
+            const isHackComp = (component as any).__classname__ === '_EditorHackTransformComponent_';
+            if (!isHackComp && (!component.enabled || !node.active || !node.parent)) {
+                if (has) this._removeGizmo('component', component);
+                this._removeGizmo('icon', component);
+                this._removeGizmo('persistent', component);
+                return;
+            }
+
+            let gizmo: GizmoBase | null | undefined;
+
+            if (has) {
+                gizmo = getGizmoProperty('component', component);
+                if (gizmo) {
+                    if ((gizmo as any).onNodeChanged && gizmo.checkVisible()) {
+                        (gizmo as any).onNodeChanged(opts);
+                    }
+                } else {
+                    this._showGizmo('component', component);
                 }
             }
+
+            gizmo = getGizmoProperty('persistent', component);
+            if (gizmo) {
+                if ((gizmo as any).onNodeChanged && gizmo.checkVisible()) {
+                    (gizmo as any).onNodeChanged(opts);
+                }
+            } else {
+                this._showGizmo('persistent', component);
+            }
+
+            gizmo = getGizmoProperty('icon', component);
+            if (gizmo) {
+                if ((gizmo as any).onNodeChanged && gizmo.checkVisible()) {
+                    (gizmo as any).onNodeChanged(opts);
+                }
+            } else {
+                this._showGizmo('icon', component);
+            }
         });
+
+        if (opts?.type !== NodeEventType.CHILD_CHANGED) {
+            node.children.forEach((child) => {
+                this.onNodeChanged(child, opts);
+            });
+        }
+
+        Service.Engine?.repaintInEditMode?.();
     }
 
     onComponentAdded(comp: Component): void {
